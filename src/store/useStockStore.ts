@@ -15,6 +15,17 @@ interface LinePrefs {
   tradeConfirm: boolean;
 }
 
+type PersistedStockState = Pick<
+  StockState,
+  | 'selectedSymbol'
+  | 'resolution'
+  | 'watchlist'
+  | 'holdings'
+  | 'transactions'
+  | 'assets'
+  | 'linePrefs'
+>;
+
 export type AddTransactionResult =
   | { ok: true; realizedGainLoss?: number }
   | { ok: false; error: string };
@@ -125,7 +136,23 @@ function computeRealizedForSell(
 
 const STORAGE_KEY = 'stock-ledgery-store';
 
-const safeStorage: PersistStorage<StockState> = {
+const DEFAULT_LINE_PREFS: LinePrefs = {
+  priceAlert: true,
+  dailySummary: true,
+  tradeConfirm: true,
+};
+
+const DEFAULT_PERSISTED_STATE: PersistedStockState = {
+  selectedSymbol: 'AAPL',
+  resolution: '1D',
+  watchlist: DEFAULT_WATCHLIST,
+  holdings: [],
+  transactions: [],
+  assets: [],
+  linePrefs: DEFAULT_LINE_PREFS,
+};
+
+const safeStorage: PersistStorage<PersistedStockState> = {
   getItem: (name) => {
     try {
       const raw = localStorage.getItem(name);
@@ -152,7 +179,7 @@ const safeStorage: PersistStorage<StockState> = {
 };
 
 export const useStockStore = create<StockState>()(
-  persist<StockState>(
+  persist<StockState, [], [], PersistedStockState>(
     (set): StockState => ({
       selectedSymbol: 'AAPL',
       resolution: '1D',
@@ -160,7 +187,7 @@ export const useStockStore = create<StockState>()(
       holdings: [],
       transactions: [],
       assets: [],
-      linePrefs: { priceAlert: true, dailySummary: true, tradeConfirm: true },
+      linePrefs: DEFAULT_LINE_PREFS,
       setSelectedSymbol: (symbol) => set({ selectedSymbol: symbol }),
       setResolution: (resolution) => set({ resolution }),
       addToWatchlist: (symbol) =>
@@ -242,8 +269,17 @@ export const useStockStore = create<StockState>()(
       name: STORAGE_KEY,
       version: 4,
       storage: safeStorage,
-      migrate: (persistedState, version) => {
-        const state = (persistedState ?? {}) as Partial<StockState> & {
+      partialize: (state) => ({
+        selectedSymbol: state.selectedSymbol,
+        resolution: state.resolution,
+        watchlist: state.watchlist,
+        holdings: state.holdings,
+        transactions: state.transactions,
+        assets: state.assets,
+        linePrefs: state.linePrefs,
+      }),
+      migrate: (persistedState, version): PersistedStockState => {
+        const state = (persistedState ?? {}) as Partial<PersistedStockState> & {
           holdings?: Holding[];
         };
         if (version < 4) {
@@ -264,12 +300,18 @@ export const useStockStore = create<StockState>()(
             }));
           }
           return {
+            ...DEFAULT_PERSISTED_STATE,
             ...state,
             transactions: nextTxns,
             holdings: reconcileHoldings(nextTxns),
+            linePrefs: state.linePrefs ?? DEFAULT_LINE_PREFS,
           };
         }
-        return state;
+        return {
+          ...DEFAULT_PERSISTED_STATE,
+          ...state,
+          linePrefs: state.linePrefs ?? DEFAULT_LINE_PREFS,
+        };
       },
     },
   ),
