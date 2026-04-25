@@ -65,6 +65,20 @@ export interface Transaction {
   fee: number;
   tradedAt: string;
   note?: string;
+  /** 賣出時的已實現損益：(price - avgCostAtSell) * shares - fee */
+  realizedGainLoss?: number;
+}
+
+export interface DividendEvent {
+  date: string;
+  amount: number;
+}
+
+export interface SplitEvent {
+  date: string;
+  numerator: number;
+  denominator: number;
+  ratio: number;
 }
 
 export interface AssetSnapshot {

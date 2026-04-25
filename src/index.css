@@ -8,6 +8,10 @@
   --line-height-base: 1.55;
 }
 
+html.dark {
+  color-scheme: dark;
+}
+
 html,
 body,
 #root {
@@ -35,6 +39,15 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+html.dark body {
+  background:
+    radial-gradient(900px 600px at -10% -10%, rgba(10, 132, 255, 0.18), transparent 60%),
+    radial-gradient(800px 600px at 110% 0%, rgba(175, 82, 222, 0.18), transparent 55%),
+    radial-gradient(700px 500px at 50% 110%, rgba(48, 209, 88, 0.12), transparent 60%),
+    linear-gradient(180deg, #0b0b10 0%, #15151c 100%);
+  color: #ececf1;
 }
 
 h1,
@@ -66,31 +79,37 @@ samp {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(15, 23, 42, 0.32);
 }
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+}
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
 
 @layer components {
   .card {
-    @apply rounded-2xl border border-black/5 bg-surface-card shadow-glass backdrop-blur-2xl backdrop-saturate-150;
+    @apply rounded-2xl border border-black/5 bg-surface-card shadow-glass backdrop-blur-2xl backdrop-saturate-150 dark:border-white/10 dark:bg-zinc-900/55;
   }
   .card-header {
-    @apply flex items-center justify-between gap-4 border-b border-black/5 px-6 py-5;
+    @apply flex items-center justify-between gap-4 border-b border-black/5 px-6 py-5 dark:border-white/10;
   }
   .card-body {
     @apply p-6;
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-lg border border-black/10 bg-white/70 px-3.5 py-2 text-sm font-medium text-ink-soft shadow-sm transition hover:bg-white active:scale-[0.98];
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg border border-black/10 bg-white/70 px-3.5 py-2 text-sm font-medium text-ink-soft shadow-sm transition hover:bg-white active:scale-[0.98] dark:border-white/10 dark:bg-zinc-800/70 dark:text-zinc-200 dark:hover:bg-zinc-800;
   }
   .btn-primary {
-    @apply border-brand/50 bg-brand text-white shadow-[0_4px_14px_rgba(10,132,255,0.32)] hover:bg-brand-dark hover:text-white;
+    @apply border-brand/50 bg-brand text-white shadow-[0_4px_14px_rgba(10,132,255,0.32)] hover:bg-brand-dark hover:text-white dark:border-brand/40;
   }
   .chip {
-    @apply inline-flex items-center rounded-full border border-black/10 bg-white/70 px-2.5 py-1 text-xs font-medium text-ink-mute backdrop-blur;
+    @apply inline-flex items-center rounded-full border border-black/10 bg-white/70 px-2.5 py-1 text-xs font-medium text-ink-mute backdrop-blur dark:border-white/10 dark:bg-zinc-800/60 dark:text-zinc-400;
   }
   .input {
-    @apply w-full rounded-lg border border-black/10 bg-white/80 px-3.5 py-2.5 text-[15px] text-ink placeholder:text-ink-faint shadow-sm focus:border-brand/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand/25;
+    @apply w-full rounded-lg border border-black/10 bg-white/80 px-3.5 py-2.5 text-[15px] text-ink placeholder:text-ink-faint shadow-sm focus:border-brand/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand/25 dark:border-white/10 dark:bg-zinc-800/70 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:bg-zinc-900;
   }
   .section-title {
-    @apply text-lg font-semibold tracking-tight text-ink;
+    @apply text-lg font-semibold tracking-tight text-ink dark:text-zinc-100;
   }
   .section-hint {
     @apply mt-1 text-sm text-ink-mute;

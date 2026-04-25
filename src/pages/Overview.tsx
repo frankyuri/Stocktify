@@ -5,6 +5,7 @@ import { AllocationPie, type PieSlice } from '@/components/charts/AllocationPie'
 import { Skeleton } from '@/components/ui/Skeleton';
 import { fetchPortfolio } from '@/services/stocks';
 import { useStockStore } from '@/store/useStockStore';
+import { holdingsKey } from '@/lib/queryKeys';
 import {
   changeColor,
   formatCurrency,
@@ -19,13 +20,17 @@ export function Overview() {
   const transactions = useStockStore((s) => s.transactions);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['portfolio', holdings],
+    queryKey: ['portfolio', holdingsKey(holdings)],
     queryFn: () => fetchPortfolio(holdings),
     enabled: holdings.length > 0,
     refetchInterval: 60_000,
   });
 
-  const groups = useMemo(() => groupByCurrency(data ?? []), [data]);
+  const enriched = data?.holdings ?? [];
+  const stale = data?.stale ?? false;
+  const failedSymbols = data?.failed ?? [];
+
+  const groups = useMemo(() => groupByCurrency(enriched), [enriched]);
   const primary = groups[0];
 
   const netFlow = useMemo(() => {
@@ -36,6 +41,11 @@ export function Overview() {
     }
     return v;
   }, [transactions]);
+
+  const realizedTotal = useMemo(
+    () => transactions.reduce((s, t) => s + (t.realizedGainLoss ?? 0), 0),
+    [transactions],
+  );
 
   return (
     <div className="space-y-6">
@@ -52,7 +62,19 @@ export function Overview() {
         <Skeleton className="h-80 w-full" />
       ) : (
         <>
-          <SummaryCards primary={primary} groups={groups} netFlow={netFlow} />
+          {stale && (
+            <div className="card border-amber-300/40 bg-amber-50/60 px-5 py-3 text-sm text-amber-800">
+              ⚠ 以下標的報價載入失敗，數值用持股成本暫代：
+              <span className="ml-1 font-mono">{failedSymbols.join('、')}</span>
+            </div>
+          )}
+
+          <SummaryCards
+            primary={primary}
+            groups={groups}
+            netFlow={netFlow}
+            realizedTotal={realizedTotal}
+          />
 
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <AllocationCard primary={primary} />
@@ -61,7 +83,7 @@ export function Overview() {
 
           {groups.length > 1 && <MultiCurrencyCard groups={groups} />}
 
-          <DetailTable data={data} />
+          <DetailTable data={enriched} />
         </>
       )}
     </div>
@@ -87,10 +109,12 @@ function SummaryCards({
   primary,
   groups,
   netFlow,
+  realizedTotal,
 }: {
   primary?: GroupEntry;
   groups: GroupEntry[];
   netFlow: number;
+  realizedTotal: number;
 }) {
   if (!primary) return null;
   const { currency, marketValue, gainLoss, dayChange, cost } = primary;
@@ -98,7 +122,7 @@ function SummaryCards({
   const dayPct = marketValue ? (dayChange / marketValue) * 100 : 0;
 
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
       <div className="card p-6">
         <div className="flex items-baseline justify-between">
           <p className="label-caps">總市值</p>
@@ -150,6 +174,20 @@ function SummaryCards({
         <p className={cn('mt-1.5 font-mono text-xs num', changeColor(gainLoss))}>
           {formatPercent(gainPct)}
         </p>
+      </div>
+
+      <div className="card p-6">
+        <p className="label-caps">已實現損益</p>
+        <p
+          className={cn(
+            'mt-3 font-mono text-[30px] font-semibold num',
+            changeColor(realizedTotal),
+          )}
+        >
+          {realizedTotal >= 0 ? '+' : ''}
+          {formatNumber(realizedTotal)}
+        </p>
+        <p className="mt-1.5 text-xs text-ink-mute">累計賣出已落袋</p>
       </div>
     </div>
   );

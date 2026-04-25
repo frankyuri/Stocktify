@@ -1,13 +1,20 @@
 import { useEffect, useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { StockChart } from '@/components/charts/StockChart';
+import { StockChart, type ChartMarker } from '@/components/charts/StockChart';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { fetchCandles, fetchQuote } from '@/services/stocks';
+import { fetchChartBundle, fetchQuote } from '@/services/stocks';
 import { useStockStore } from '@/store/useStockStore';
 import { changeColor, formatNumber, formatPercent } from '@/lib/format';
 import { cn } from '@/lib/cn';
-import type { Holding, Quote, Resolution, Transaction } from '@/types/stock';
+import type {
+  DividendEvent,
+  Holding,
+  Quote,
+  Resolution,
+  SplitEvent,
+  Transaction,
+} from '@/types/stock';
 
 const RESOLUTIONS: Resolution[] = ['1D', '1W', '1M'];
 
@@ -31,9 +38,9 @@ export function StockDetail() {
     refetchInterval: 60_000,
   });
 
-  const chart = useQuery({
-    queryKey: ['chart', symbol, resolution],
-    queryFn: () => fetchCandles(symbol, resolution),
+  const bundle = useQuery({
+    queryKey: ['chart-bundle', symbol, resolution],
+    queryFn: () => fetchChartBundle(symbol, resolution),
   });
 
   const inWatchlist = watchlist.includes(symbol);
@@ -49,6 +56,41 @@ export function StockDetail() {
         .slice(0, 8),
     [transactions, symbol],
   );
+
+  const dividends = bundle.data?.dividends ?? [];
+  const splits = bundle.data?.splits ?? [];
+
+  const markers = useMemo<ChartMarker[]>(() => {
+    const out: ChartMarker[] = [];
+    for (const t of transactions.filter((x) => x.symbol === symbol)) {
+      out.push({
+        time: t.tradedAt,
+        position: t.type === 'BUY' ? 'belowBar' : 'aboveBar',
+        color: t.type === 'BUY' ? '#30d158' : '#ff453a',
+        shape: t.type === 'BUY' ? 'arrowUp' : 'arrowDown',
+        text: `${t.type === 'BUY' ? 'B' : 'S'} ${formatNumber(t.shares, 4)}`,
+      });
+    }
+    for (const d of dividends) {
+      out.push({
+        time: d.date,
+        position: 'belowBar',
+        color: '#0a84ff',
+        shape: 'circle',
+        text: `配息 ${d.amount}`,
+      });
+    }
+    for (const s of splits) {
+      out.push({
+        time: s.date,
+        position: 'aboveBar',
+        color: '#bf5af2',
+        shape: 'square',
+        text: `拆股 ${s.numerator}:${s.denominator}`,
+      });
+    }
+    return out;
+  }, [transactions, symbol, dividends, splits]);
 
   return (
     <div className="space-y-5">
@@ -70,18 +112,20 @@ export function StockDetail() {
               <div>
                 <h2 className="section-title">走勢圖</h2>
                 <p className="section-hint">
-                  滾輪縮放 · 拖曳平移 · MA 可多選 · hover 看 OHLC · 52W 以虛線標示
+                  你的買賣點以箭頭、配息以圓點、拆股以方塊標記
                 </p>
               </div>
             </div>
             <div className="card-body">
-              {chart.isLoading ? (
+              {bundle.isLoading ? (
                 <Skeleton className="h-[440px] w-full" />
-              ) : chart.data ? (
+              ) : bundle.data ? (
                 <StockChart
-                  data={chart.data}
+                  data={bundle.data.candles}
+                  resolution={resolution}
                   fiftyTwoWeekHigh={quote.data?.fiftyTwoWeekHigh}
                   fiftyTwoWeekLow={quote.data?.fiftyTwoWeekLow}
+                  markers={markers}
                 />
               ) : (
                 <p className="py-16 text-center text-ink-mute">暫無資料</p>
@@ -90,14 +134,18 @@ export function StockDetail() {
           </section>
 
           <TradesCard symbol={symbol} txns={symbolTxns} currency={quote.data?.currency} />
+
+          {(dividends.length > 0 || splits.length > 0) && (
+            <EventsCard
+              dividends={dividends}
+              splits={splits}
+              currency={quote.data?.currency}
+            />
+          )}
         </div>
 
         <aside className="space-y-5">
-          <HoldingCard
-            symbol={symbol}
-            holding={holding}
-            quote={quote.data}
-          />
+          <HoldingCard symbol={symbol} holding={holding} quote={quote.data} />
           <RangeCard quote={quote.data} />
         </aside>
       </div>
@@ -125,13 +173,15 @@ function TickerHeader({
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-baseline gap-2.5">
-            <h1 className="text-[28px] font-semibold tracking-tight text-ink">{symbol}</h1>
+            <h1 className="text-[28px] font-semibold tracking-tight text-ink dark:text-zinc-100">
+              {symbol}
+            </h1>
             {quote && <span className="text-[15px] text-ink-mute">{quote.name}</span>}
             {quote?.exchangeName && <span className="chip">{quote.exchangeName}</span>}
           </div>
           {quote ? (
             <div className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1">
-              <span className="font-mono text-[36px] font-semibold leading-none tracking-tight text-ink num">
+              <span className="font-mono text-[36px] font-semibold leading-none tracking-tight text-ink num dark:text-zinc-100">
                 {formatNumber(quote.price)}
               </span>
               <span
@@ -150,7 +200,7 @@ function TickerHeader({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex overflow-hidden rounded-lg border border-black/10 bg-white/70 backdrop-blur">
+          <div className="inline-flex overflow-hidden rounded-lg border border-black/10 bg-white/70 backdrop-blur dark:border-white/10 dark:bg-zinc-800/70">
             {RESOLUTIONS.map((r) => (
               <button
                 key={r}
@@ -159,7 +209,7 @@ function TickerHeader({
                 className={`px-3.5 py-2 text-sm font-medium transition ${
                   resolution === r
                     ? 'bg-brand text-white'
-                    : 'text-ink-soft hover:bg-black/[0.04]'
+                    : 'text-ink-soft hover:bg-black/[0.04] dark:text-zinc-300 dark:hover:bg-white/5'
                 }`}
               >
                 {r}
@@ -211,7 +261,7 @@ function TickerStatsBar({ quote }: { quote?: Quote }) {
             </p>
             <p
               className={cn(
-                'mt-0.5 font-mono text-[15px] font-semibold text-ink num',
+                'mt-0.5 font-mono text-[15px] font-semibold text-ink num dark:text-zinc-100',
                 it.tone === 'up' && 'text-up',
                 it.tone === 'down' && 'text-down',
               )}
@@ -266,7 +316,7 @@ function HoldingCard({
         <Row label="市值" value={formatNumber(marketValue)} />
       </div>
 
-      <div className="mt-4 rounded-xl border border-black/5 bg-black/[0.02] p-3.5">
+      <div className="mt-4 rounded-xl border border-black/5 bg-black/[0.02] p-3.5 dark:border-white/10 dark:bg-white/[0.04]">
         <div className="flex items-baseline justify-between">
           <span className="text-sm text-ink-mute">未實現損益</span>
           <span
@@ -350,7 +400,7 @@ function TradesCard({
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-black/5 text-left text-xs font-medium uppercase tracking-[0.1em] text-ink-faint">
+                <tr className="border-b border-black/5 text-left text-xs font-medium uppercase tracking-[0.1em] text-ink-faint dark:border-white/10">
                   <th className="px-6 py-3">日期</th>
                   <th className="px-6 py-3">方向</th>
                   <th className="px-6 py-3 text-right">股數</th>
@@ -363,8 +413,13 @@ function TradesCard({
                 {txns.map((t) => {
                   const subtotal = t.shares * t.price + t.fee;
                   return (
-                    <tr key={t.id} className="border-b border-black/[0.04] last:border-0">
-                      <td className="px-6 py-3 text-ink-soft">{t.tradedAt.slice(0, 10)}</td>
+                    <tr
+                      key={t.id}
+                      className="border-b border-black/[0.04] last:border-0 dark:border-white/5"
+                    >
+                      <td className="px-6 py-3 text-ink-soft dark:text-zinc-300">
+                        {t.tradedAt.slice(0, 10)}
+                      </td>
                       <td className="px-6 py-3">
                         <span
                           className={cn(
@@ -401,11 +456,85 @@ function TradesCard({
   );
 }
 
+function EventsCard({
+  dividends,
+  splits,
+  currency,
+}: {
+  dividends: DividendEvent[];
+  splits: SplitEvent[];
+  currency?: string;
+}) {
+  const recentDivs = [...dividends]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 8);
+  const recentSplits = [...splits]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 4);
+
+  return (
+    <section className="card">
+      <div className="card-header">
+        <div>
+          <h2 className="section-title">公司事件</h2>
+          <p className="section-hint">
+            來自 Yahoo Finance · 配息 {dividends.length} 筆 · 拆股 {splits.length} 次
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-0 divide-y divide-black/5 md:grid-cols-2 md:divide-x md:divide-y-0 dark:divide-white/10">
+        <div className="p-5">
+          <p className="label-caps">最近配息</p>
+          {recentDivs.length === 0 ? (
+            <p className="mt-3 text-sm text-ink-mute">沒有配息資料</p>
+          ) : (
+            <ul className="mt-3 space-y-2 text-sm">
+              {recentDivs.map((d) => (
+                <li
+                  key={d.date}
+                  className="flex items-baseline justify-between font-mono"
+                >
+                  <span className="text-ink-soft num dark:text-zinc-300">{d.date}</span>
+                  <span className="font-semibold text-ink num dark:text-zinc-100">
+                    {d.amount} {currency ?? ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="p-5">
+          <p className="label-caps">最近拆股</p>
+          {recentSplits.length === 0 ? (
+            <p className="mt-3 text-sm text-ink-mute">沒有拆股紀錄</p>
+          ) : (
+            <ul className="mt-3 space-y-2 text-sm">
+              {recentSplits.map((s) => (
+                <li
+                  key={s.date}
+                  className="flex items-baseline justify-between font-mono"
+                >
+                  <span className="text-ink-soft num dark:text-zinc-300">{s.date}</span>
+                  <span className="font-semibold text-ink num dark:text-zinc-100">
+                    {s.numerator}:{s.denominator}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
       <span className="text-sm text-ink-mute">{label}</span>
-      <span className="font-mono text-[15px] font-medium text-ink num">{value}</span>
+      <span className="font-mono text-[15px] font-medium text-ink num dark:text-zinc-100">
+        {value}
+      </span>
     </div>
   );
 }
@@ -425,16 +554,16 @@ function RangeRow({
     <div>
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-sm text-ink-mute">{label}</span>
-        <span className="font-mono text-[13px] text-ink-soft num">
+        <span className="font-mono text-[13px] text-ink-soft num dark:text-zinc-300">
           {fmt(low)}
           <span className="mx-1.5 text-ink-faint">—</span>
           {fmt(high)}
         </span>
       </div>
       {marker != null && (
-        <div className="relative mt-2 h-1.5 rounded-full bg-black/[0.06]">
+        <div className="relative mt-2 h-1.5 rounded-full bg-black/[0.06] dark:bg-white/10">
           <div
-            className="absolute -top-0.5 h-2.5 w-2.5 -translate-x-1/2 rounded-full border-2 border-white bg-brand shadow"
+            className="absolute -top-0.5 h-2.5 w-2.5 -translate-x-1/2 rounded-full border-2 border-white bg-brand shadow dark:border-zinc-900"
             style={{ left: `${marker}%` }}
           />
         </div>

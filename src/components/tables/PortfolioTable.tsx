@@ -22,9 +22,11 @@ import { cn } from '@/lib/cn';
 interface Props {
   data: PortfolioHolding[];
   onRemove?: (symbol: string) => void;
+  /** 報價有部分失敗 / 是 cache，會在右上角加標示 */
+  stale?: boolean;
 }
 
-export function PortfolioTable({ data, onRemove }: Props) {
+export function PortfolioTable({ data, onRemove, stale }: Props) {
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'marketValue', desc: true },
   ]);
@@ -142,12 +144,22 @@ export function PortfolioTable({ data, onRemove }: Props) {
           <h3 className="section-title">個人持股</h3>
           <p className="section-hint">點擊列可進入個股研究頁</p>
         </div>
-        <input
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="搜尋..."
-          className="input w-48 py-2"
-        />
+        <div className="flex items-center gap-2">
+          {stale && (
+            <span
+              className="chip border-amber-400/40 bg-amber-50/80 text-amber-700"
+              title="部分報價來源失敗，正在使用上次成功的快取"
+            >
+              ⚠ 報價可能不是最新
+            </span>
+          )}
+          <input
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="搜尋..."
+            className="input w-48 py-2"
+          />
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-black/5 text-[15px]">

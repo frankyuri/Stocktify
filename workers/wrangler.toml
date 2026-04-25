@@ -1,3 +1,10 @@
 name = "stock-ledgery-yahoo-proxy"
 main = "yahoo-proxy.js"
 compatibility_date = "2024-10-01"
+
+# Production CORS 白名單。逗號分隔，含 protocol。
+# 部署前請改成你自己的網域：
+#   wrangler secret put ALLOWED_ORIGINS
+# 或在 Dashboard → Workers → Settings → Variables 設定。
+[vars]
+ALLOWED_ORIGINS = "https://frank900405.github.io,http://localhost:5173,http://127.0.0.1:5173"
