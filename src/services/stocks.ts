@@ -3,14 +3,22 @@ import {
   buildMockQuote,
   searchSymbols,
 } from './mockData';
-import { yahooChart, yahooQuote, yahooQuotes, yahooSearch } from './yahoo';
+import {
+  yahooChart,
+  yahooQuote,
+  yahooQuotesLite,
+  yahooSearch,
+  type ChartBundle,
+} from './yahoo';
 import type {
   Candle,
+  DividendEvent,
   Holding,
   PortfolioHolding,
   Quote,
   Resolution,
   SearchResult,
+  SplitEvent,
 } from '@/types/stock';
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
@@ -28,24 +36,56 @@ export async function fetchCandles(
   return candles;
 }
 
+export async function fetchChartBundle(
+  symbol: string,
+  resolution: Resolution = '1D',
+): Promise<ChartBundle> {
+  if (USE_MOCK) {
+    const candles = await fake(buildMockCandles(symbol));
+    return {
+      candles,
+      quote: buildMockQuote(symbol),
+      dividends: [] as DividendEvent[],
+      splits: [] as SplitEvent[],
+    };
+  }
+  return yahooChart(symbol, resolution);
+}
+
 export async function fetchQuote(symbol: string): Promise<Quote> {
   if (USE_MOCK) return fake(buildMockQuote(symbol));
   return yahooQuote(symbol);
 }
 
-export async function fetchQuotes(symbols: string[]): Promise<Quote[]> {
-  if (symbols.length === 0) return [];
-  if (USE_MOCK) return fake(symbols.map(buildMockQuote));
-  return yahooQuotes(symbols);
+export interface FetchQuotesResult {
+  quotes: Quote[];
+  failed: string[];
+}
+
+export async function fetchQuotes(
+  symbols: string[],
+): Promise<FetchQuotesResult> {
+  if (symbols.length === 0) return { quotes: [], failed: [] };
+  if (USE_MOCK) {
+    const quotes = await fake(symbols.map(buildMockQuote));
+    return { quotes, failed: [] };
+  }
+  return yahooQuotesLite(symbols);
+}
+
+export interface FetchPortfolioResult {
+  holdings: PortfolioHolding[];
+  failed: string[];
+  stale: boolean;
 }
 
 export async function fetchPortfolio(
   holdings: Holding[],
-): Promise<PortfolioHolding[]> {
-  if (holdings.length === 0) return [];
-  const quotes = await fetchQuotes(holdings.map((h) => h.symbol));
+): Promise<FetchPortfolioResult> {
+  if (holdings.length === 0) return { holdings: [], failed: [], stale: false };
+  const { quotes, failed } = await fetchQuotes(holdings.map((h) => h.symbol));
   const quoteMap = new Map(quotes.map((q) => [q.symbol, q]));
-  return holdings.map((h) => {
+  const enriched: PortfolioHolding[] = holdings.map((h) => {
     const q = quoteMap.get(h.symbol);
     const price = q?.price ?? h.avgCost;
     const change = q?.change ?? 0;
@@ -67,6 +107,7 @@ export async function fetchPortfolio(
       currency: q?.currency ?? guessCurrency(h.symbol),
     };
   });
+  return { holdings: enriched, failed, stale: failed.length > 0 };
 }
 
 function guessCurrency(symbol: string): string {

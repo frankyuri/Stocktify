@@ -14,9 +14,11 @@ import { cn } from '@/lib/cn';
 interface Props {
   data: Quote[];
   onRemove?: (symbol: string) => void;
+  /** 部分報價失敗時顯示警示 */
+  stale?: boolean;
 }
 
-export function WatchlistTable({ data, onRemove }: Props) {
+export function WatchlistTable({ data, onRemove, stale }: Props) {
   const navigate = useNavigate();
   const columns = useMemo<ColumnDef<Quote>[]>(
     () => [
@@ -91,6 +93,11 @@ export function WatchlistTable({ data, onRemove }: Props) {
 
   return (
     <div className="overflow-x-auto">
+      {stale && (
+        <div className="border-b border-amber-300/40 bg-amber-50/60 px-5 py-2 text-xs text-amber-700">
+          ⚠ 部分自選股報價載入失敗，列表可能不完整
+        </div>
+      )}
       <table className="min-w-full divide-y divide-black/5 text-[15px]">
         <thead>
           {table.getHeaderGroups().map((group) => (

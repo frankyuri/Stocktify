@@ -7,7 +7,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { yahooSearch } from '@/services/yahoo';
+import { searchTickers } from '@/services/stocks';
 import { cn } from '@/lib/cn';
 import type { SearchResult } from '@/types/stock';
 
@@ -48,7 +48,7 @@ export function SymbolSearchInput({
 
   const { data: results = [], isFetching } = useQuery({
     queryKey: ['search', debounced],
-    queryFn: () => yahooSearch(debounced),
+    queryFn: () => searchTickers(debounced),
     enabled: debounced.length >= 1,
     staleTime: 60_000,
   });

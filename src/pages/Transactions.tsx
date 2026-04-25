@@ -4,7 +4,8 @@ import { useStockStore } from '@/store/useStockStore';
 import { SymbolSearchInput } from '@/components/ui/SymbolSearchInput';
 import { fetchQuote } from '@/services/stocks';
 import { cn } from '@/lib/cn';
-import { formatNumber, formatShares } from '@/lib/format';
+import { changeColor, formatNumber, formatShares } from '@/lib/format';
+import { useToast } from '@/lib/toast';
 import type { Quote, SearchResult, TransactionType } from '@/types/stock';
 
 function todayISO(): string {
@@ -18,6 +19,7 @@ export function Transactions() {
   const addTransaction = useStockStore((s) => s.addTransaction);
   const removeTransaction = useStockStore((s) => s.removeTransaction);
   const qc = useQueryClient();
+  const toast = useToast();
 
   const [type, setType] = useState<TransactionType>('BUY');
   const [symbol, setSymbol] = useState('');
@@ -70,7 +72,28 @@ export function Transactions() {
     if (!Number.isFinite(sh) || sh <= 0) return setError('股數需為正數');
     if (!Number.isFinite(p) || p <= 0) return setError('成交價需為正數');
 
-    addTransaction({ type, symbol: s, shares: sh, price: p, fee: f, tradedAt, note });
+    const result = addTransaction({
+      type,
+      symbol: s,
+      shares: sh,
+      price: p,
+      fee: f,
+      tradedAt,
+      note,
+    });
+    if (!result.ok) {
+      setError(result.error);
+      toast.error(result.error);
+      return;
+    }
+    if (type === 'SELL' && typeof result.realizedGainLoss === 'number') {
+      const r = result.realizedGainLoss;
+      toast.success(
+        `已記錄 ${s} 賣出 · 已實現損益 ${r >= 0 ? '+' : ''}${formatNumber(r)}`,
+      );
+    } else {
+      toast.success(`已記錄 ${s} ${type === 'BUY' ? '買進' : '賣出'} ${sh} 股`);
+    }
     setSymbol('');
     setShares('');
     setPrice('');
@@ -255,6 +278,7 @@ export function Transactions() {
                 <th className="px-5 py-3 text-right font-semibold">小計</th>
                 <th className="px-5 py-3 text-right font-semibold">手續費</th>
                 <th className="px-5 py-3 text-right font-semibold">合計</th>
+                <th className="px-5 py-3 text-right font-semibold">已實現損益</th>
                 <th className="px-5 py-3 text-left font-semibold">備註</th>
                 <th className="px-5 py-3" />
               </tr>
@@ -298,11 +322,32 @@ export function Transactions() {
                     <td className="px-5 py-3 text-right font-mono font-semibold text-ink num">
                       {formatNumber(total)}
                     </td>
+                    <td
+                      className={cn(
+                        'px-5 py-3 text-right font-mono num',
+                        t.realizedGainLoss != null
+                          ? changeColor(t.realizedGainLoss)
+                          : 'text-ink-faint',
+                      )}
+                    >
+                      {t.realizedGainLoss != null
+                        ? `${t.realizedGainLoss >= 0 ? '+' : ''}${formatNumber(t.realizedGainLoss)}`
+                        : '—'}
+                    </td>
                     <td className="px-5 py-3 text-ink-mute">{t.note ?? '—'}</td>
                     <td className="px-5 py-3 text-right">
                       <button
                         type="button"
-                        onClick={() => removeTransaction(t.id)}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `確定要刪除 ${t.tradedAt} ${t.symbol} 的這筆交易？\n持股會重新計算。`,
+                            )
+                          ) {
+                            removeTransaction(t.id);
+                            toast.success('已刪除交易，持股已重新同步');
+                          }
+                        }}
                         className="rounded-md px-2 py-1 text-xs text-ink-mute transition hover:bg-black/5 hover:text-down"
                       >
                         刪除
@@ -313,7 +358,7 @@ export function Transactions() {
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-5 py-12 text-center text-sm text-ink-mute">
+                  <td colSpan={11} className="px-5 py-12 text-center text-sm text-ink-mute">
                     {transactions.length === 0
                       ? '尚未有任何交易紀錄，先從上方新增一筆試試看'
                       : '沒有符合條件的交易'}

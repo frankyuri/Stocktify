@@ -5,6 +5,8 @@ import { fetchPortfolio } from '@/services/stocks';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { LineAreaChart } from '@/components/charts/LineAreaChart';
+import { holdingsKey } from '@/lib/queryKeys';
+import { convert, SUPPORTED_BASE_CURRENCIES, type BaseCurrency } from '@/lib/fx';
 
 const CURRENCIES = ['TWD', 'USD', 'HKD', 'JPY', 'EUR'];
 
@@ -40,9 +42,10 @@ export function Assets() {
   const [rows, setRows] = useState<Row[]>([newRow('TWD')]);
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [baseCurrency, setBaseCurrency] = useState<BaseCurrency>('TWD');
 
   const { data: portfolio } = useQuery({
-    queryKey: ['portfolio', holdings],
+    queryKey: ['portfolio', holdingsKey(holdings)],
     queryFn: () => fetchPortfolio(holdings),
     enabled: holdings.length > 0,
     staleTime: 60_000,
@@ -50,7 +53,7 @@ export function Assets() {
 
   const securitiesByCurrency = useMemo(() => {
     const m = new Map<string, number>();
-    for (const p of portfolio ?? []) {
+    for (const p of portfolio?.holdings ?? []) {
       m.set(p.currency, (m.get(p.currency) ?? 0) + p.marketValue);
     }
     return m;
@@ -125,6 +128,24 @@ export function Assets() {
       value: a.cash + a.securities + a.other,
     }));
   }, [primary]);
+
+  /** 把所有快照依日期 group，把每個幣別折算到 base 後加總 */
+  const combinedSeries = useMemo(() => {
+    if (assets.length === 0 || grouped.length <= 1) return [];
+    const byDate = new Map<string, number>();
+    for (const a of assets) {
+      const total = a.cash + a.securities + a.other;
+      const inBase = convert(total, a.currency, baseCurrency);
+      byDate.set(a.date, (byDate.get(a.date) ?? 0) + inBase);
+    }
+    return Array.from(byDate.entries())
+      .sort((x, y) => x[0].localeCompare(y[0]))
+      .map(([time, value]) => ({ time, value: Math.round(value * 100) / 100 }));
+  }, [assets, grouped.length, baseCurrency]);
+
+  const combinedLatest = combinedSeries[combinedSeries.length - 1]?.value ?? 0;
+  const combinedFirst = combinedSeries[0]?.value ?? 0;
+  const combinedChange = combinedLatest - combinedFirst;
 
   const latest = primary?.[1][primary[1].length - 1];
   const first = primary?.[1][0];
@@ -303,6 +324,53 @@ export function Assets() {
               <LineAreaChart data={chartData} />
             </div>
           </section>
+
+          {combinedSeries.length > 0 && (
+            <section className="card">
+              <div className="card-header">
+                <div>
+                  <h2 className="section-title">合計走勢（折算 {baseCurrency}）</h2>
+                  <p className="section-hint">
+                    把各幣別用內建匯率折算後加總；匯率為靜態值，僅供觀察趨勢
+                  </p>
+                </div>
+                <div className="inline-flex overflow-hidden rounded-lg border border-black/10 bg-white/70 text-xs dark:border-white/10 dark:bg-zinc-800/70">
+                  {SUPPORTED_BASE_CURRENCIES.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setBaseCurrency(c)}
+                      className={cn(
+                        'px-3 py-1.5 font-medium transition',
+                        baseCurrency === c
+                          ? 'bg-brand text-white'
+                          : 'text-ink-soft hover:bg-black/[0.04] dark:text-zinc-300 dark:hover:bg-white/5',
+                      )}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="card-body space-y-3">
+                <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+                  <span className="font-mono text-[26px] font-semibold text-ink num">
+                    {formatCurrency(combinedLatest, baseCurrency)}
+                  </span>
+                  <span
+                    className={cn(
+                      'font-mono text-sm num',
+                      combinedChange >= 0 ? 'text-up' : 'text-down',
+                    )}
+                  >
+                    期間 {combinedChange >= 0 ? '+' : ''}
+                    {formatNumber(combinedChange)} {baseCurrency}
+                  </span>
+                </div>
+                <LineAreaChart data={combinedSeries} />
+              </div>
+            </section>
+          )}
 
           <div className="card overflow-hidden">
             <div className="card-header">

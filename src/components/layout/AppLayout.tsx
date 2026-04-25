@@ -1,15 +1,27 @@
-import { Outlet } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 export function AppLayout() {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const location = useLocation();
+
+  // 切換頁面時自動關掉行動版抽屜
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [location.pathname]);
+
   return (
     <div className="flex min-h-screen">
-      <Sidebar />
+      <Sidebar open={drawerOpen} onClose={() => setDrawerOpen(false)} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Header />
+        <Header onMenuClick={() => setDrawerOpen(true)} />
         <main className="mx-auto w-full max-w-[1280px] flex-1 p-5 md:p-8">
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

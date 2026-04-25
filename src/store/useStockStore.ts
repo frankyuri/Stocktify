@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, type PersistStorage } from 'zustand/middleware';
 import type {
   AssetSnapshot,
   Holding,
@@ -15,10 +15,15 @@ interface LinePrefs {
   tradeConfirm: boolean;
 }
 
+export type AddTransactionResult =
+  | { ok: true; realizedGainLoss?: number }
+  | { ok: false; error: string };
+
 interface StockState {
   selectedSymbol: string;
   resolution: Resolution;
   watchlist: string[];
+  /** 由 transactions 自動 reconcile，不要直接 mutate */
   holdings: Holding[];
   transactions: Transaction[];
   assets: AssetSnapshot[];
@@ -27,48 +32,124 @@ interface StockState {
   setResolution: (resolution: Resolution) => void;
   addToWatchlist: (symbol: string) => void;
   removeFromWatchlist: (symbol: string) => void;
-  upsertHolding: (holding: Holding) => void;
-  removeHolding: (symbol: string) => void;
-  addTransaction: (t: Omit<Transaction, 'id'>) => void;
-  addRawTransaction: (t: Omit<Transaction, 'id'>) => void;
+  addTransaction: (
+    t: Omit<Transaction, 'id' | 'realizedGainLoss'>,
+  ) => AddTransactionResult;
   removeTransaction: (id: string) => void;
   addAssetSnapshot: (a: Omit<AssetSnapshot, 'id'>) => void;
   removeAssetSnapshot: (id: string) => void;
   setLinePrefs: (patch: Partial<LinePrefs>) => void;
+  /** 完整匯入備份，覆寫所有資料 */
+  importBackup: (snapshot: BackupSnapshot) => void;
+}
+
+export interface BackupSnapshot {
+  version: number;
+  exportedAt: string;
+  watchlist: string[];
+  transactions: Transaction[];
+  assets: AssetSnapshot[];
+  linePrefs?: LinePrefs;
 }
 
 function genId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
-function applyTransaction(holdings: Holding[], t: Transaction): Holding[] {
-  const idx = holdings.findIndex((h) => h.symbol === t.symbol);
-  if (t.type === 'BUY') {
-    if (idx === -1) {
-      return [...holdings, { symbol: t.symbol, shares: t.shares, avgCost: t.price }];
-    }
-    const prev = holdings[idx];
-    const newShares = prev.shares + t.shares;
-    const newAvg =
-      newShares > 0
-        ? (prev.shares * prev.avgCost + t.shares * t.price + t.fee) / newShares
-        : prev.avgCost;
-    const next = holdings.slice();
-    next[idx] = { symbol: prev.symbol, shares: newShares, avgCost: round(newAvg) };
-    return next;
-  }
-  if (idx === -1) return holdings;
-  const prev = holdings[idx];
-  const newShares = Math.max(0, prev.shares - t.shares);
-  if (newShares === 0) return holdings.filter((h) => h.symbol !== t.symbol);
-  const next = holdings.slice();
-  next[idx] = { symbol: prev.symbol, shares: newShares, avgCost: prev.avgCost };
-  return next;
-}
-
 function round(n: number): number {
   return Math.round(n * 1e4) / 1e4;
 }
+
+/**
+ * 從 transactions 重新計算 holdings。
+ * 規則：
+ *  - BUY：weighted avg cost，手續費攤入成本
+ *  - SELL：扣減股數，平均成本不變（FIFO 變體）
+ *  - 賣超的部分視為無效（reconcile 時不會讓股數變負）
+ */
+export function reconcileHoldings(transactions: Transaction[]): Holding[] {
+  const sorted = [...transactions].sort((a, b) =>
+    a.tradedAt.localeCompare(b.tradedAt),
+  );
+  const map = new Map<string, Holding>();
+  for (const t of sorted) {
+    const prev = map.get(t.symbol);
+    if (t.type === 'BUY') {
+      if (!prev) {
+        const avg = t.shares > 0 ? t.price + t.fee / t.shares : t.price;
+        map.set(t.symbol, {
+          symbol: t.symbol,
+          shares: t.shares,
+          avgCost: round(avg),
+        });
+      } else {
+        const newShares = prev.shares + t.shares;
+        const newAvg =
+          newShares > 0
+            ? (prev.shares * prev.avgCost + t.shares * t.price + t.fee) /
+              newShares
+            : prev.avgCost;
+        map.set(t.symbol, {
+          symbol: t.symbol,
+          shares: newShares,
+          avgCost: round(newAvg),
+        });
+      }
+    } else if (t.type === 'SELL') {
+      if (!prev) continue;
+      const newShares = prev.shares - t.shares;
+      if (newShares <= 1e-6) {
+        map.delete(t.symbol);
+      } else {
+        map.set(t.symbol, {
+          symbol: t.symbol,
+          shares: newShares,
+          avgCost: prev.avgCost,
+        });
+      }
+    }
+  }
+  return Array.from(map.values());
+}
+
+/** 計算這筆 SELL 的已實現損益（用 reconcile 到此筆「之前」的 avg cost） */
+function computeRealizedForSell(
+  transactions: Transaction[],
+  pending: Omit<Transaction, 'id' | 'realizedGainLoss'>,
+): number {
+  const before = reconcileHoldings(transactions);
+  const prev = before.find((h) => h.symbol === pending.symbol);
+  if (!prev) return 0;
+  return round((pending.price - prev.avgCost) * pending.shares - pending.fee);
+}
+
+const STORAGE_KEY = 'stock-ledgery-store';
+
+const safeStorage: PersistStorage<StockState> = {
+  getItem: (name) => {
+    try {
+      const raw = localStorage.getItem(name);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (name, value) => {
+    try {
+      localStorage.setItem(name, JSON.stringify(value));
+    } catch {
+      /* quota / disabled */
+    }
+  },
+  removeItem: (name) => {
+    try {
+      localStorage.removeItem(name);
+    } catch {
+      /* noop */
+    }
+  },
+};
 
 export const useStockStore = create<StockState>()(
   persist(
@@ -84,35 +165,58 @@ export const useStockStore = create<StockState>()(
       setResolution: (resolution) => set({ resolution }),
       addToWatchlist: (symbol) =>
         set((s) => ({
-          watchlist: s.watchlist.includes(symbol) ? s.watchlist : [...s.watchlist, symbol],
+          watchlist: s.watchlist.includes(symbol)
+            ? s.watchlist
+            : [...s.watchlist, symbol],
         })),
       removeFromWatchlist: (symbol) =>
-        set((s) => ({ watchlist: s.watchlist.filter((x) => x !== symbol) })),
-      upsertHolding: (holding) =>
+        set((s) => ({
+          watchlist: s.watchlist.filter((x) => x !== symbol),
+        })),
+      addTransaction: (t) => {
+        const state = useStockStore.getState();
+        if (!Number.isFinite(t.shares) || t.shares <= 0) {
+          return { ok: false, error: '股數需為正數' };
+        }
+        if (!Number.isFinite(t.price) || t.price <= 0) {
+          return { ok: false, error: '成交價需為正數' };
+        }
+        if (t.type === 'SELL') {
+          const prev = state.holdings.find((h) => h.symbol === t.symbol);
+          if (!prev) {
+            return { ok: false, error: `尚未持有 ${t.symbol}，無法賣出` };
+          }
+          if (t.shares > prev.shares + 1e-6) {
+            return {
+              ok: false,
+              error: `賣出股數 ${t.shares} 超過持有 ${prev.shares}`,
+            };
+          }
+        }
+        const realized =
+          t.type === 'SELL'
+            ? computeRealizedForSell(state.transactions, t)
+            : undefined;
+        const full: Transaction = {
+          id: genId(),
+          ...t,
+          ...(realized != null ? { realizedGainLoss: realized } : {}),
+        };
+        const nextTxns = [full, ...state.transactions];
+        set({
+          transactions: nextTxns,
+          holdings: reconcileHoldings(nextTxns),
+        });
+        return { ok: true, realizedGainLoss: realized };
+      },
+      removeTransaction: (id) =>
         set((s) => {
-          const idx = s.holdings.findIndex((h) => h.symbol === holding.symbol);
-          if (idx === -1) return { holdings: [...s.holdings, holding] };
-          const next = s.holdings.slice();
-          next[idx] = holding;
-          return { holdings: next };
-        }),
-      removeHolding: (symbol) =>
-        set((s) => ({ holdings: s.holdings.filter((h) => h.symbol !== symbol) })),
-      addTransaction: (t) =>
-        set((s) => {
-          const full: Transaction = { id: genId(), ...t };
+          const nextTxns = s.transactions.filter((t) => t.id !== id);
           return {
-            transactions: [full, ...s.transactions],
-            holdings: applyTransaction(s.holdings, full),
+            transactions: nextTxns,
+            holdings: reconcileHoldings(nextTxns),
           };
         }),
-      addRawTransaction: (t) =>
-        set((s) => {
-          const full: Transaction = { id: genId(), ...t };
-          return { transactions: [full, ...s.transactions] };
-        }),
-      removeTransaction: (id) =>
-        set((s) => ({ transactions: s.transactions.filter((t) => t.id !== id) })),
       addAssetSnapshot: (a) =>
         set((s) => ({
           assets: [...s.assets, { id: genId(), ...a }].sort((x, y) =>
@@ -123,7 +227,63 @@ export const useStockStore = create<StockState>()(
         set((s) => ({ assets: s.assets.filter((a) => a.id !== id) })),
       setLinePrefs: (patch) =>
         set((s) => ({ linePrefs: { ...s.linePrefs, ...patch } })),
+      importBackup: (snapshot) =>
+        set((s) => ({
+          watchlist: snapshot.watchlist?.length
+            ? snapshot.watchlist
+            : s.watchlist,
+          transactions: snapshot.transactions ?? [],
+          assets: snapshot.assets ?? [],
+          linePrefs: snapshot.linePrefs ?? s.linePrefs,
+          holdings: reconcileHoldings(snapshot.transactions ?? []),
+        })),
     }),
-    { name: 'stock-ledgery-store', version: 3 },
+    {
+      name: STORAGE_KEY,
+      version: 4,
+      storage: safeStorage,
+      migrate: (persistedState, version) => {
+        const state = (persistedState ?? {}) as Partial<StockState> & {
+          holdings?: Holding[];
+        };
+        if (version < 4) {
+          const txns = state.transactions ?? [];
+          const oldHoldings = state.holdings ?? [];
+          let nextTxns = txns;
+          if (txns.length === 0 && oldHoldings.length > 0) {
+            const today = new Date().toISOString().slice(0, 10);
+            nextTxns = oldHoldings.map((h) => ({
+              id: genId(),
+              type: 'BUY' as const,
+              symbol: h.symbol,
+              shares: h.shares,
+              price: h.avgCost,
+              fee: 0,
+              tradedAt: today,
+              note: '初始部位（資料升級自動建立）',
+            }));
+          }
+          return {
+            ...state,
+            transactions: nextTxns,
+            holdings: reconcileHoldings(nextTxns),
+          };
+        }
+        return state;
+      },
+    },
   ),
 );
+
+/** 給匯出備份用 */
+export function buildBackupSnapshot(): BackupSnapshot {
+  const s = useStockStore.getState();
+  return {
+    version: 4,
+    exportedAt: new Date().toISOString(),
+    watchlist: s.watchlist,
+    transactions: s.transactions,
+    assets: s.assets,
+    linePrefs: s.linePrefs,
+  };
+}

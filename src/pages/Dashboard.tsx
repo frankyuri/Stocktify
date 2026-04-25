@@ -6,6 +6,7 @@ import { fetchCandles, fetchQuote, fetchQuotes } from '@/services/stocks';
 import { useStockStore } from '@/store/useStockStore';
 import { formatNumber, formatPercent, changeColor } from '@/lib/format';
 import { cn } from '@/lib/cn';
+import { symbolsKey } from '@/lib/queryKeys';
 import type { Quote } from '@/types/stock';
 
 const INDEX_SYMBOLS = [
@@ -21,9 +22,10 @@ export function Dashboard() {
   const setSelected = useStockStore((s) => s.setSelectedSymbol);
   const remove = useStockStore((s) => s.removeFromWatchlist);
 
+  const indexSymbols = INDEX_SYMBOLS.map((x) => x.symbol);
   const indices = useQuery({
-    queryKey: ['indices', INDEX_SYMBOLS.map((x) => x.symbol)],
-    queryFn: () => fetchQuotes(INDEX_SYMBOLS.map((x) => x.symbol)),
+    queryKey: ['quotes-lite', symbolsKey(indexSymbols)],
+    queryFn: () => fetchQuotes(indexSymbols),
     refetchInterval: 60_000,
   });
 
@@ -39,13 +41,15 @@ export function Dashboard() {
   });
 
   const watch = useQuery({
-    queryKey: ['quotes', watchlist],
+    queryKey: ['quotes-lite', symbolsKey(watchlist)],
     queryFn: () => fetchQuotes(watchlist),
     enabled: watchlist.length > 0,
     refetchInterval: 60_000,
   });
 
-  const indexMap = new Map((indices.data ?? []).map((q) => [q.symbol, q]));
+  const indexMap = new Map(
+    (indices.data?.quotes ?? []).map((q) => [q.symbol, q]),
+  );
 
   return (
     <div className="space-y-6">
@@ -136,7 +140,11 @@ export function Dashboard() {
             <Skeleton className="h-32 w-full" />
           </div>
         ) : (
-          <WatchlistTable data={watch.data ?? []} onRemove={remove} />
+          <WatchlistTable
+            data={watch.data?.quotes ?? []}
+            onRemove={remove}
+            stale={(watch.data?.failed.length ?? 0) > 0}
+          />
         )}
       </section>
     </div>

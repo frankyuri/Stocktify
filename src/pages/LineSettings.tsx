@@ -35,11 +35,26 @@ export function LineSettings() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-[28px] font-semibold tracking-tight text-ink">LINE 通知綁定</h1>
-        <p className="mt-1.5 text-[15px] text-ink-mute">
-          綁定 LINE 後可以接收價格警示、每日資產摘要、以及交易確認訊息。
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-[28px] font-semibold tracking-tight text-ink">
+            LINE 通知綁定
+          </h1>
+          <p className="mt-1.5 text-[15px] text-ink-mute">
+            綁定 LINE 後可以接收價格警示、每日資產摘要、以及交易確認訊息。
+          </p>
+        </div>
+        <span
+          className="chip border-amber-400/40 bg-amber-50/80 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+          title="UI 已完成，但實際推播需要等後端 + LINE Messaging API 串接"
+        >
+          ⚠ 待後端串接
+        </span>
+      </div>
+
+      <div className="card border-amber-300/40 bg-amber-50/60 px-5 py-3 text-sm text-amber-800 dark:bg-amber-950/20 dark:text-amber-200">
+        目前頁面為 demo：「綁定」走前端 mock、「通知偏好」只存在本機。實際推播
+        要等後端 LINE Messaging API 接通後才會生效。
       </div>
 
       {!user && (
@@ -144,8 +159,11 @@ export function LineSettings() {
         <div className="card-header">
           <div>
             <h2 className="section-title">通知偏好</h2>
-            <p className="section-hint">後端會依照這裡的設定推送不同訊息</p>
+            <p className="section-hint">
+              偏好暫存在本機 · 後端串好後會自動讀取
+            </p>
           </div>
+          <span className="chip">尚未生效</span>
         </div>
         <div className="card-body divide-y divide-black/5">
           <Toggle

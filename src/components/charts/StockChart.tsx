@@ -10,19 +10,40 @@ import {
   type Logical,
   type LogicalRange,
   type MouseEventParams,
+  type SeriesMarker,
+  type Time,
   type UTCTimestamp,
 } from 'lightweight-charts';
 import type { Candle } from '@/types/stock';
 import { cn } from '@/lib/cn';
 
+export interface ChartMarker {
+  time: string;
+  position: 'aboveBar' | 'belowBar' | 'inBar';
+  color: string;
+  shape: 'arrowUp' | 'arrowDown' | 'circle' | 'square';
+  text?: string;
+}
+
 interface StockChartProps {
   data: Candle[];
   height?: number;
+  /** 目前 K 線 resolution，影響 range 按鈕的「1M / 3M…」對應幾根 */
+  resolution?: '1D' | '1W' | '1M';
   /** 52 週高，會以虛線標示於 Y 軸上 */
   fiftyTwoWeekHigh?: number;
   /** 52 週低，會以虛線標示於 Y 軸上 */
   fiftyTwoWeekLow?: number;
+  /** 交易點 / 股息 / 拆股事件標記 */
+  markers?: ChartMarker[];
 }
+
+/** 不同 resolution 下「N 個月」對應幾根 K 棒 */
+const BARS_PER_MONTH: Record<NonNullable<StockChartProps['resolution']>, number> = {
+  '1D': 22,
+  '1W': 4,
+  '1M': 1,
+};
 
 const MA_OPTIONS = [
   { key: 'ma5', period: 5, color: '#0a84ff', label: 'MA5' },
@@ -40,9 +61,12 @@ interface HoverInfo {
 export function StockChart({
   data,
   height = 420,
+  resolution = '1D',
   fiftyTwoWeekHigh,
   fiftyTwoWeekLow,
+  markers,
 }: StockChartProps) {
+  const barsPerMonth = BARS_PER_MONTH[resolution];
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -244,18 +268,34 @@ export function StockChart({
       );
     }
 
-    chartRef.current?.timeScale().fitContent();
-  }, [data, enabledMA, maData, fiftyTwoWeekHigh, fiftyTwoWeekLow]);
+    if (markers && markers.length > 0) {
+      const seriesMarkers: SeriesMarker<Time>[] = markers
+        .slice()
+        .sort((a, b) => a.time.localeCompare(b.time))
+        .map((m) => ({
+          time: m.time as unknown as Time,
+          position: m.position,
+          color: m.color,
+          shape: m.shape,
+          text: m.text,
+        }));
+      candle.setMarkers(seriesMarkers);
+    } else {
+      candle.setMarkers([]);
+    }
 
-  function setRange(days: number | 'all') {
+    chartRef.current?.timeScale().fitContent();
+  }, [data, enabledMA, maData, fiftyTwoWeekHigh, fiftyTwoWeekLow, markers]);
+
+  function setRangeBars(bars: number | 'all') {
     const chart = chartRef.current;
     if (!chart || data.length === 0) return;
-    if (days === 'all') {
+    if (bars === 'all') {
       chart.timeScale().fitContent();
       return;
     }
     const to = (data.length - 1) as unknown as Logical;
-    const from = Math.max(0, data.length - 1 - days) as unknown as Logical;
+    const from = Math.max(0, data.length - 1 - bars) as unknown as Logical;
     const range: LogicalRange = { from, to };
     chart.timeScale().setVisibleLogicalRange(range);
   }
@@ -287,25 +327,29 @@ export function StockChart({
             </button>
           ))}
         </div>
-        <div className="inline-flex overflow-hidden rounded-lg border border-black/10 bg-white/70 text-xs">
+        <div className="inline-flex overflow-hidden rounded-lg border border-black/10 bg-white/70 text-xs dark:border-white/10 dark:bg-zinc-800/70">
           {(
             [
-              { label: '1M', d: 22 },
-              { label: '3M', d: 66 },
-              { label: '6M', d: 132 },
-              { label: '1Y', d: 252 },
-              { label: 'ALL', d: 'all' as const },
+              { label: '1M', months: 1 },
+              { label: '3M', months: 3 },
+              { label: '6M', months: 6 },
+              { label: '1Y', months: 12 },
+              { label: '3Y', months: 36 },
+              { label: 'ALL', months: 'all' as const },
             ] as const
-          ).map((x) => (
-            <button
-              key={x.label}
-              type="button"
-              onClick={() => setRange(x.d)}
-              className="px-3 py-1.5 font-medium text-ink-soft transition hover:bg-black/[0.04]"
-            >
-              {x.label}
-            </button>
-          ))}
+          ).map((x) => {
+            const bars = x.months === 'all' ? 'all' : x.months * barsPerMonth;
+            return (
+              <button
+                key={x.label}
+                type="button"
+                onClick={() => setRangeBars(bars)}
+                className="px-3 py-1.5 font-medium text-ink-soft transition hover:bg-black/[0.04] dark:text-zinc-300 dark:hover:bg-white/5"
+              >
+                {x.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
