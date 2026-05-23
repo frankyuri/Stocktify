@@ -1,10 +1,17 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, lazy, Suspense } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { StockChart, type ChartMarker } from '@/components/charts/StockChart';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { ChartMarker } from '@/components/charts/StockChart';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { fetchChartBundle, fetchQuote } from '@/services/stocks';
 import { useStockStore } from '@/store/useStockStore';
+
+const StockChart = lazy(() =>
+  import('@/components/charts/StockChart').then((m) => ({ default: m.StockChart })),
+);
+
+const CHART_REFETCH_MS = 5 * 60_000;
+const QUOTE_REFETCH_MS = 60_000;
 import { changeColor, formatNumber, formatPercent } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import {
@@ -32,23 +39,31 @@ export function StockDetail() {
   const holdings = useStockStore((s) => s.holdings);
   const transactions = useStockStore((s) => s.transactions);
   const setSelected = useStockStore((s) => s.setSelectedSymbol);
+  const qc = useQueryClient();
 
   useEffect(() => {
     setSelected(symbol);
   }, [symbol, setSelected]);
 
-  const quote = useQuery({
-    queryKey: ['quote', symbol],
-    queryFn: () => fetchQuote(symbol),
-    refetchInterval: 60_000,
-  });
-
   const bundle = useQuery({
     queryKey: ['chart-bundle', symbol, resolution],
     queryFn: () => fetchChartBundle(symbol, resolution),
-    // 與 quote 對齊：盤中最新一根 K 線會跟著動
-    refetchInterval: 5 * 60_000,
+    refetchInterval: CHART_REFETCH_MS,
   });
+
+  const quote = useQuery({
+    queryKey: ['quote', symbol],
+    queryFn: () => fetchQuote(symbol),
+    refetchInterval: QUOTE_REFETCH_MS,
+    placeholderData: () =>
+      qc.getQueryData<Awaited<ReturnType<typeof fetchChartBundle>>>([
+        'chart-bundle',
+        symbol,
+        resolution,
+      ])?.quote,
+  });
+
+  const displayQuote = quote.data ?? bundle.data?.quote;
 
   const inWatchlist = watchlist.includes(symbol);
   const holding = useMemo(
@@ -108,14 +123,14 @@ export function StockDetail() {
     <div className="space-y-5">
       <TickerHeader
         symbol={symbol}
-        quote={quote.data}
+        quote={displayQuote}
         resolution={resolution}
         setResolution={setResolution}
         inWatchlist={inWatchlist}
         onAddWatchlist={() => addToWatchlist(symbol)}
       />
 
-      <TickerStatsBar quote={quote.data} />
+      <TickerStatsBar quote={displayQuote} />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-5">
@@ -132,26 +147,28 @@ export function StockDetail() {
               {bundle.isLoading ? (
                 <Skeleton className="h-[440px] w-full" />
               ) : bundle.data ? (
-                <StockChart
-                  data={bundle.data.candles}
-                  resolution={resolution}
-                  fiftyTwoWeekHigh={quote.data?.fiftyTwoWeekHigh}
-                  fiftyTwoWeekLow={quote.data?.fiftyTwoWeekLow}
-                  markers={markers}
-                />
+                <Suspense fallback={<Skeleton className="h-[440px] w-full" />}>
+                  <StockChart
+                    data={bundle.data.candles}
+                    resolution={resolution}
+                    fiftyTwoWeekHigh={displayQuote?.fiftyTwoWeekHigh}
+                    fiftyTwoWeekLow={displayQuote?.fiftyTwoWeekLow}
+                    markers={markers}
+                  />
+                </Suspense>
               ) : (
                 <p className="py-16 text-center text-ink-mute">暫無資料</p>
               )}
             </div>
           </section>
 
-          <TradesCard symbol={symbol} txns={symbolTxns} currency={quote.data?.currency} />
+          <TradesCard symbol={symbol} txns={symbolTxns} currency={displayQuote?.currency} />
 
           {(dividends.length > 0 || splits.length > 0) && (
             <EventsCard
               dividends={dividends}
               splits={splits}
-              currency={quote.data?.currency}
+              currency={displayQuote?.currency}
               dividendStats={dividendStats}
             />
           )}
@@ -161,10 +178,10 @@ export function StockDetail() {
           <HoldingCard
             symbol={symbol}
             holding={holding}
-            quote={quote.data}
+            quote={displayQuote}
             stats={dividendStats}
           />
-          <RangeCard quote={quote.data} />
+          <RangeCard quote={displayQuote} />
         </aside>
       </div>
     </div>

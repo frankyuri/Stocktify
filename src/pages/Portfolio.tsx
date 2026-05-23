@@ -2,24 +2,16 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { PortfolioTable } from '@/components/tables/PortfolioTable';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { fetchPortfolio } from '@/services/stocks';
+import { portfolioQueryOptions } from '@/lib/queries/portfolio';
 import { useStockStore } from '@/store/useStockStore';
-import { holdingsKey } from '@/lib/queryKeys';
-import type { PortfolioHolding } from '@/types/stock';
+import type { fetchPortfolio } from '@/services/stocks';
 
 export function Portfolio() {
   const holdings = useStockStore((s) => s.holdings);
 
-  const { data, isLoading, isError, error, isStale } = useQuery<
-    Awaited<ReturnType<typeof fetchPortfolio>>,
-    Error,
-    PortfolioHolding[]
-  >({
-    queryKey: ['portfolio', holdingsKey(holdings)],
-    queryFn: () => fetchPortfolio(holdings),
-    select: (result) => result.holdings,
-    enabled: holdings.length > 0,
-    refetchInterval: 60_000,
+  const { data, isLoading, isError, error, isStale } = useQuery({
+    ...portfolioQueryOptions(holdings),
+    select: (result: Awaited<ReturnType<typeof fetchPortfolio>>) => result.holdings,
   });
 
   return (

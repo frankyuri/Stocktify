@@ -1,11 +1,11 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useStockStore } from '@/store/useStockStore';
-import { fetchPortfolio } from '@/services/stocks';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { LineAreaChart } from '@/components/charts/LineAreaChart';
-import { holdingsKey } from '@/lib/queryKeys';
+import { portfolioQueryOptions } from '@/lib/queries/portfolio';
+import { todayISO } from '@/lib/date';
 import { convert, SUPPORTED_BASE_CURRENCIES, type BaseCurrency } from '@/lib/fx';
 
 const CURRENCIES = ['TWD', 'USD', 'HKD', 'JPY', 'EUR'];
@@ -16,12 +16,6 @@ interface Row {
   cash: string;
   securities: string;
   other: string;
-}
-
-function todayISO(): string {
-  const d = new Date();
-  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-  return d.toISOString().slice(0, 10);
 }
 
 function rowId(): string {
@@ -44,12 +38,7 @@ export function Assets() {
   const [error, setError] = useState<string | null>(null);
   const [baseCurrency, setBaseCurrency] = useState<BaseCurrency>('TWD');
 
-  const { data: portfolio } = useQuery({
-    queryKey: ['portfolio', holdingsKey(holdings)],
-    queryFn: () => fetchPortfolio(holdings),
-    enabled: holdings.length > 0,
-    staleTime: 60_000,
-  });
+  const { data: portfolio } = useQuery(portfolioQueryOptions(holdings));
 
   const securitiesByCurrency = useMemo(() => {
     const m = new Map<string, number>();

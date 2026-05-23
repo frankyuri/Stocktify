@@ -1,13 +1,17 @@
-import { useQuery } from '@tanstack/react-query';
-import { StockChart } from '@/components/charts/StockChart';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { lazy, Suspense } from 'react';
 import { WatchlistTable } from '@/components/tables/WatchlistTable';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { fetchCandles, fetchQuote, fetchQuotes } from '@/services/stocks';
+import { fetchChartBundle, fetchQuote, fetchQuotes } from '@/services/stocks';
 import { useStockStore } from '@/store/useStockStore';
 import { formatNumber, formatPercent, changeColor } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { symbolsKey } from '@/lib/queryKeys';
 import type { Quote } from '@/types/stock';
+
+const StockChart = lazy(() =>
+  import('@/components/charts/StockChart').then((m) => ({ default: m.StockChart })),
+);
 
 const INDEX_SYMBOLS = [
   { symbol: '^GSPC', label: 'S&P 500' },
@@ -16,42 +20,53 @@ const INDEX_SYMBOLS = [
   { symbol: '^TWII', label: '加權指數' },
 ];
 
+const CHART_REFETCH_MS = 5 * 60_000;
+const QUOTE_REFETCH_MS = 60_000;
+
 export function Dashboard() {
   const selected = useStockStore((s) => s.selectedSymbol);
   const watchlist = useStockStore((s) => s.watchlist);
   const setSelected = useStockStore((s) => s.setSelectedSymbol);
   const remove = useStockStore((s) => s.removeFromWatchlist);
+  const qc = useQueryClient();
 
   const indexSymbols = INDEX_SYMBOLS.map((x) => x.symbol);
   const indices = useQuery({
     queryKey: ['quotes-lite', symbolsKey(indexSymbols)],
     queryFn: () => fetchQuotes(indexSymbols),
-    refetchInterval: 60_000,
+    refetchInterval: QUOTE_REFETCH_MS,
+  });
+
+  const bundle = useQuery({
+    queryKey: ['chart-bundle', selected, '1D'],
+    queryFn: () => fetchChartBundle(selected, '1D'),
+    refetchInterval: CHART_REFETCH_MS,
   });
 
   const quote = useQuery({
     queryKey: ['quote', selected],
     queryFn: () => fetchQuote(selected),
-    refetchInterval: 60_000,
-  });
-
-  const chart = useQuery({
-    queryKey: ['chart', selected, '1D'],
-    queryFn: () => fetchCandles(selected, '1D'),
-    // 與 quote 對齊：盤中最新一根 K 線會跟著動，不更新會跟報價不一致
-    refetchInterval: 5 * 60_000,
+    refetchInterval: QUOTE_REFETCH_MS,
+    placeholderData: () =>
+      qc.getQueryData<Awaited<ReturnType<typeof fetchChartBundle>>>([
+        'chart-bundle',
+        selected,
+        '1D',
+      ])?.quote,
   });
 
   const watch = useQuery({
     queryKey: ['quotes-lite', symbolsKey(watchlist)],
     queryFn: () => fetchQuotes(watchlist),
     enabled: watchlist.length > 0,
-    refetchInterval: 60_000,
+    refetchInterval: QUOTE_REFETCH_MS,
   });
 
   const indexMap = new Map(
     (indices.data?.quotes ?? []).map((q) => [q.symbol, q]),
   );
+
+  const displayQuote = quote.data ?? bundle.data?.quote;
 
   return (
     <div className="space-y-6">
@@ -93,36 +108,38 @@ export function Dashboard() {
           </div>
         </div>
 
-        {quote.data && (
+        {displayQuote && (
           <div className="mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-2">
             <span className="font-mono text-[32px] font-semibold tracking-tight text-ink num">
-              {formatNumber(quote.data.price)}
+              {formatNumber(displayQuote.price)}
             </span>
             <span
               className={cn(
                 'font-mono text-[15px] font-medium num',
-                changeColor(quote.data.change),
+                changeColor(displayQuote.change),
               )}
             >
-              {quote.data.change > 0 ? '+' : ''}
-              {formatNumber(quote.data.change)} (
-              {formatPercent(quote.data.changePercent)})
+              {displayQuote.change > 0 ? '+' : ''}
+              {formatNumber(displayQuote.change)} (
+              {formatPercent(displayQuote.changePercent)})
             </span>
             <span className="text-sm text-ink-mute">
-              前收 {formatNumber(quote.data.previousClose)} · 開盤{' '}
-              {formatNumber(quote.data.open ?? 0)} · 高{' '}
-              {formatNumber(quote.data.dayHigh ?? 0)} · 低{' '}
-              {formatNumber(quote.data.dayLow ?? 0)} · {quote.data.currency}
+              前收 {formatNumber(displayQuote.previousClose)} · 開盤{' '}
+              {formatNumber(displayQuote.open ?? 0)} · 高{' '}
+              {formatNumber(displayQuote.dayHigh ?? 0)} · 低{' '}
+              {formatNumber(displayQuote.dayLow ?? 0)} · {displayQuote.currency}
             </span>
           </div>
         )}
 
         <div className="card">
           <div className="card-body">
-            {chart.isLoading ? (
+            {bundle.isLoading ? (
               <Skeleton className="h-[420px] w-full" />
-            ) : chart.data ? (
-              <StockChart data={chart.data} />
+            ) : bundle.data?.candles ? (
+              <Suspense fallback={<Skeleton className="h-[420px] w-full" />}>
+                <StockChart data={bundle.data.candles} />
+              </Suspense>
             ) : (
               <p className="py-16 text-center text-ink-mute">無法載入圖表資料</p>
             )}

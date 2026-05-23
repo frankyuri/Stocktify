@@ -10,6 +10,18 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-query': ['@tanstack/react-query'],
+          'vendor-charts': ['lightweight-charts'],
+          'vendor-table': ['@tanstack/react-table'],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     open: true,

@@ -6,8 +6,8 @@ import {
   useState,
   type KeyboardEvent,
 } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { searchTickers } from '@/services/stocks';
+import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue';
+import { useTickerSearch } from '@/lib/hooks/useTickerSearch';
 import { cn } from '@/lib/cn';
 import type { SearchResult } from '@/types/stock';
 
@@ -31,7 +31,7 @@ export function SymbolSearchInput({
   disabled,
 }: Props) {
   const [query, setQuery] = useState(value);
-  const [debounced, setDebounced] = useState(value);
+  const debounced = useDebouncedValue(query.trim());
   const [open, setOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -41,17 +41,7 @@ export function SymbolSearchInput({
     setQuery(value);
   }, [value]);
 
-  useEffect(() => {
-    const id = setTimeout(() => setDebounced(query.trim()), 220);
-    return () => clearTimeout(id);
-  }, [query]);
-
-  const { data: results = [], isFetching } = useQuery({
-    queryKey: ['search', debounced],
-    queryFn: () => searchTickers(debounced),
-    enabled: debounced.length >= 1,
-    staleTime: 60_000,
-  });
+  const { data: results = [], isFetching } = useTickerSearch(query);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
