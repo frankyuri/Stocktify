@@ -27,6 +27,8 @@ jobs:
 
       - run: npm ci
 
+      - run: npm test
+
       - name: Build
         env:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/

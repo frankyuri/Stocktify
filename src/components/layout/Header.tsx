@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { searchTickers } from '@/services/stocks';
+import { useTickerSearch } from '@/lib/hooks/useTickerSearch';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useStockStore } from '@/store/useStockStore';
 import { useTheme } from '@/lib/theme';
@@ -14,7 +13,6 @@ interface HeaderProps {
 
 export function Header({ onMenuClick }: HeaderProps) {
   const [query, setQuery] = useState('');
-  const [debounced, setDebounced] = useState('');
   const [open, setOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -28,17 +26,7 @@ export function Header({ onMenuClick }: HeaderProps) {
   const watchlist = useStockStore((s) => s.watchlist);
   const addToWatchlist = useStockStore((s) => s.addToWatchlist);
 
-  useEffect(() => {
-    const id = setTimeout(() => setDebounced(query.trim()), 220);
-    return () => clearTimeout(id);
-  }, [query]);
-
-  const { data: results = [] } = useQuery({
-    queryKey: ['search', debounced],
-    queryFn: () => searchTickers(debounced),
-    enabled: debounced.length > 0,
-    staleTime: 30_000,
-  });
+  const { data: results = [] } = useTickerSearch(query);
 
   useEffect(() => {
     function onClick(e: MouseEvent) {

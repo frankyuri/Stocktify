@@ -5,14 +5,9 @@ import { SymbolSearchInput } from '@/components/ui/SymbolSearchInput';
 import { fetchQuote } from '@/services/stocks';
 import { cn } from '@/lib/cn';
 import { changeColor, formatNumber, formatShares } from '@/lib/format';
+import { todayISO } from '@/lib/date';
 import { useToast } from '@/lib/toast';
 import type { Quote, SearchResult, TransactionType } from '@/types/stock';
-
-function todayISO(): string {
-  const d = new Date();
-  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-  return d.toISOString().slice(0, 10);
-}
 
 export function Transactions() {
   const transactions = useStockStore((s) => s.transactions);

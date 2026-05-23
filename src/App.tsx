@@ -1,34 +1,98 @@
+import { lazy, Suspense, type ReactNode } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RequireAuth } from '@/components/auth/RequireAuth';
-import { Dashboard } from '@/pages/Dashboard';
-import { Overview } from '@/pages/Overview';
-import { Portfolio } from '@/pages/Portfolio';
-import { StockDetail } from '@/pages/StockDetail';
-import { Transactions } from '@/pages/Transactions';
-import { Assets } from '@/pages/Assets';
-import { LineSettings } from '@/pages/LineSettings';
-import { DataSettings } from '@/pages/DataSettings';
-import { Login } from '@/pages/Login';
-import { Register } from '@/pages/Register';
-import { NotFound } from '@/pages/NotFound';
+import { Skeleton } from '@/components/ui/Skeleton';
+
+const Dashboard = lazy(() =>
+  import('@/pages/Dashboard').then((m) => ({ default: m.Dashboard })),
+);
+const Overview = lazy(() =>
+  import('@/pages/Overview').then((m) => ({ default: m.Overview })),
+);
+const Portfolio = lazy(() =>
+  import('@/pages/Portfolio').then((m) => ({ default: m.Portfolio })),
+);
+const StockDetail = lazy(() =>
+  import('@/pages/StockDetail').then((m) => ({ default: m.StockDetail })),
+);
+const Transactions = lazy(() =>
+  import('@/pages/Transactions').then((m) => ({ default: m.Transactions })),
+);
+const Assets = lazy(() =>
+  import('@/pages/Assets').then((m) => ({ default: m.Assets })),
+);
+const LineSettings = lazy(() =>
+  import('@/pages/LineSettings').then((m) => ({ default: m.LineSettings })),
+);
+const DataSettings = lazy(() =>
+  import('@/pages/DataSettings').then((m) => ({ default: m.DataSettings })),
+);
+const Login = lazy(() => import('@/pages/Login').then((m) => ({ default: m.Login })));
+const Register = lazy(() =>
+  import('@/pages/Register').then((m) => ({ default: m.Register })),
+);
+const NotFound = lazy(() =>
+  import('@/pages/NotFound').then((m) => ({ default: m.NotFound })),
+);
+
+function PageFallback() {
+  return (
+    <div className="space-y-4 py-8">
+      <Skeleton className="h-10 w-48" />
+      <Skeleton className="h-64 w-full" />
+    </div>
+  );
+}
+
+function LazyPage({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<PageFallback />}>{children}</Suspense>;
+}
 
 export default function App() {
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
+      <Route
+        path="/login"
+        element={
+          <LazyPage>
+            <Login />
+          </LazyPage>
+        }
+      />
+      <Route
+        path="/register"
+        element={
+          <LazyPage>
+            <Register />
+          </LazyPage>
+        }
+      />
       <Route element={<AppLayout />}>
-        {/* 公開頁面：大盤總覽 / 個股研究都不需要登入 */}
-        <Route index element={<Dashboard />} />
-        <Route path="stock/:symbol" element={<StockDetail />} />
+        <Route
+          index
+          element={
+            <LazyPage>
+              <Dashboard />
+            </LazyPage>
+          }
+        />
+        <Route
+          path="stock/:symbol"
+          element={
+            <LazyPage>
+              <StockDetail />
+            </LazyPage>
+          }
+        />
 
-        {/* 個人資產頁面 — 需要登入 */}
         <Route
           path="overview"
           element={
             <RequireAuth>
-              <Overview />
+              <LazyPage>
+                <Overview />
+              </LazyPage>
             </RequireAuth>
           }
         />
@@ -36,7 +100,9 @@ export default function App() {
           path="portfolio"
           element={
             <RequireAuth>
-              <Portfolio />
+              <LazyPage>
+                <Portfolio />
+              </LazyPage>
             </RequireAuth>
           }
         />
@@ -44,7 +110,9 @@ export default function App() {
           path="transactions"
           element={
             <RequireAuth>
-              <Transactions />
+              <LazyPage>
+                <Transactions />
+              </LazyPage>
             </RequireAuth>
           }
         />
@@ -52,7 +120,9 @@ export default function App() {
           path="assets"
           element={
             <RequireAuth>
-              <Assets />
+              <LazyPage>
+                <Assets />
+              </LazyPage>
             </RequireAuth>
           }
         />
@@ -60,7 +130,9 @@ export default function App() {
           path="settings/line"
           element={
             <RequireAuth>
-              <LineSettings />
+              <LazyPage>
+                <LineSettings />
+              </LazyPage>
             </RequireAuth>
           }
         />
@@ -68,12 +140,21 @@ export default function App() {
           path="settings/data"
           element={
             <RequireAuth>
-              <DataSettings />
+              <LazyPage>
+                <DataSettings />
+              </LazyPage>
             </RequireAuth>
           }
         />
 
-        <Route path="*" element={<NotFound />} />
+        <Route
+          path="*"
+          element={
+            <LazyPage>
+              <NotFound />
+            </LazyPage>
+          }
+        />
       </Route>
     </Routes>
   );

@@ -3,9 +3,8 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AllocationPie, type PieSlice } from '@/components/charts/AllocationPie';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { fetchPortfolio } from '@/services/stocks';
+import { portfolioQueryOptions } from '@/lib/queries/portfolio';
 import { useStockStore } from '@/store/useStockStore';
-import { holdingsKey } from '@/lib/queryKeys';
 import {
   changeColor,
   formatCurrency,
@@ -19,12 +18,7 @@ export function Overview() {
   const holdings = useStockStore((s) => s.holdings);
   const transactions = useStockStore((s) => s.transactions);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['portfolio', holdingsKey(holdings)],
-    queryFn: () => fetchPortfolio(holdings),
-    enabled: holdings.length > 0,
-    refetchInterval: 60_000,
-  });
+  const { data, isLoading } = useQuery(portfolioQueryOptions(holdings));
 
   const enriched = data?.holdings ?? [];
   const stale = data?.stale ?? false;

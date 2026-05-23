@@ -99,7 +99,6 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 2): Promise<T> {
       const status = (err as { response?: { status?: number } })?.response?.status;
       const retryable = status == null || status === 429 || status >= 500;
       if (!retryable || i === attempts - 1) throw err;
-      // 250ms → 750ms 退避，加抖動避免同步重打
       const delay = 250 * Math.pow(3, i) + Math.random() * 100;
       await new Promise((r) => setTimeout(r, delay));
     }
@@ -107,25 +106,25 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 2): Promise<T> {
   throw lastErr;
 }
 
-/** 完整版：抓 K 線 + meta + events，給 StockDetail / Dashboard 主圖用 */
-export async function yahooChart(
+async function fetchChartResult(
   symbol: string,
-  resolution: Resolution,
-): Promise<ChartBundle> {
-  const { interval, range } = INTERVAL_MAP[resolution];
+  params: Record<string, string | boolean>,
+): Promise<YahooChartResult> {
   const { data } = await withRetry(() =>
     yahoo.get<YahooChartResponse>(
       `/v8/finance/chart/${encodeURIComponent(symbol)}`,
-      { params: { interval, range, includePrePost: false, events: 'div,split' } },
+      { params: { includePrePost: false, ...params } },
     ),
   );
   if (data.chart.error) throw new Error(data.chart.error.description);
   const result = data.chart.result?.[0];
   if (!result) throw new Error(`Yahoo 無此代號的資料：${symbol}`);
+  return result;
+}
 
-  const { meta, timestamp = [], indicators, events } = result;
+function parseCandlesFromResult(result: YahooChartResult): Candle[] {
+  const { timestamp = [], indicators } = result;
   const q = indicators.quote[0];
-
   const candles: Candle[] = [];
   for (let i = 0; i < timestamp.length; i += 1) {
     const o = q.open[i];
@@ -142,9 +141,13 @@ export async function yahooChart(
       volume: q.volume[i] ?? 0,
     });
   }
+  return candles;
+}
 
-  const quote = buildQuoteFromMeta(meta, candles);
-
+function parseEvents(events: YahooEvents | undefined): {
+  dividends: DividendEvent[];
+  splits: SplitEvent[];
+} {
   const dividends: DividendEvent[] = events?.dividends
     ? Object.values(events.dividends).map((d) => ({
         date: unixToISODate(d.date),
@@ -161,12 +164,34 @@ export async function yahooChart(
       }))
     : [];
 
+  return { dividends, splits };
+}
+
+/** 完整版：抓 K 線 + meta + events，給 StockDetail / Dashboard 主圖用 */
+export async function yahooChart(
+  symbol: string,
+  resolution: Resolution,
+): Promise<ChartBundle> {
+  const { interval, range } = INTERVAL_MAP[resolution];
+  const result = await fetchChartResult(symbol, {
+    interval,
+    range,
+    events: 'div,split',
+  });
+  const candles = parseCandlesFromResult(result);
+  const quote = buildQuoteFromMeta(result.meta, candles);
+  const { dividends, splits } = parseEvents(result.events);
   return { candles, quote, dividends, splits };
 }
 
+/** 輕量報價：只抓 5 日 K 線，供即時價格輪詢 */
 export async function yahooQuote(symbol: string): Promise<Quote> {
-  const { quote } = await yahooChart(symbol, '1D');
-  return quote;
+  const result = await fetchChartResult(symbol, {
+    interval: '1d',
+    range: '5d',
+  });
+  const candles = parseCandlesFromResult(result);
+  return buildQuoteFromMeta(result.meta, candles);
 }
 
 /**
@@ -181,34 +206,7 @@ export interface QuotesResult {
 const QUOTES_CHUNK_SIZE = 5;
 
 async function fetchOneQuoteLite(sym: string): Promise<Quote> {
-  const { data } = await withRetry(() =>
-    yahoo.get<YahooChartResponse>(
-      `/v8/finance/chart/${encodeURIComponent(sym)}`,
-      { params: { interval: '1d', range: '5d', includePrePost: false } },
-    ),
-  );
-  if (data.chart.error) throw new Error(data.chart.error.description);
-  const result = data.chart.result?.[0];
-  if (!result) throw new Error(`no data for ${sym}`);
-  const { meta, timestamp = [], indicators } = result;
-  const q = indicators.quote[0];
-  const candles: Candle[] = [];
-  for (let i = 0; i < timestamp.length; i += 1) {
-    const o = q.open[i];
-    const h = q.high[i];
-    const l = q.low[i];
-    const c = q.close[i];
-    if (o == null || h == null || l == null || c == null) continue;
-    candles.push({
-      time: unixToISODate(timestamp[i]),
-      open: r2(o),
-      high: r2(h),
-      low: r2(l),
-      close: r2(c),
-      volume: q.volume[i] ?? 0,
-    });
-  }
-  return buildQuoteFromMeta(meta, candles);
+  return yahooQuote(sym);
 }
 
 export async function yahooQuotesLite(
